@@ -1,0 +1,29 @@
+# Fichiers Python compilés / cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environnements virtuels
+.venv/
+venv/
+env/
+ENV/
+
+# Config éditeurs
+.vscode/
+.idea/
+
+# Logs / sorties diverses
+*.log
+logs/
+output/
+
+# Tests / couverture
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Variables d'environnement
+.env
+.env.*

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surveillance Tracker</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #00f2ff; /* Cyan Néon */
+            --bg-glass: rgba(15, 23, 42, 0.9);
+            --text-color: #e2e8f0;
+            --console-bg: rgba(0, 0, 0, 0.95);
+        }
+
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; overflow: hidden; background: #000; color: var(--text-color); }
+        
+        #map { height: 100vh; width: 100%; z-index: 1; }
+
+        /* --- SIDEBAR (Menu Gauche) --- */
+        .sidebar {
+            position: absolute; top: 20px; left: 20px; width: 260px;
+            background: var(--bg-glass); backdrop-filter: blur(12px);
+            border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px; z-index: 1000;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6);
+        }
+
+        .header { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+        .header i { font-size: 1.2rem; color: var(--primary-color); margin-right: 10px; }
+        .header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #fff; }
+
+        .btn-action {
+            width: 100%; padding: 10px 0; margin-top: 10px;
+            background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255,255,255,0.2);
+            color: #fff; border-radius: 8px; cursor: pointer;
+            font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+            display: flex; justify-content: center; align-items: center; gap: 8px;
+            transition: 0.2s;
+        }
+        .btn-action:hover { background: rgba(255,255,255,0.1); }
+        .btn-primary { background: linear-gradient(45deg, rgba(0, 242, 255, 0.1), transparent); border-color: var(--primary-color); color: var(--primary-color); }
+        .btn-primary:hover { background: var(--primary-color); color: #000; }
+
+        /* --- CONSOLE LOGS (Bas de page) --- */
+        #console-panel {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            height: 250px; background: var(--console-bg);
+            border-top: 2px solid var(--primary-color);
+            z-index: 2000;
+            transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; font-family: 'Fira Code', monospace;
+        }
+        #console-panel.open { transform: translateY(0); }
+
+        .console-header { padding: 8px 15px; background: #1a1a1a; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; font-size: 0.8rem; color: #888; }
+        .console-close { cursor: pointer; color: #fff; }
+        .console-body { flex: 1; overflow-y: auto; padding: 10px; font-size: 0.85rem; color: #ccc; }
+        .log-table { width: 100%; border-collapse: collapse; }
+        .log-table th { text-align: left; color: #666; font-size: 0.75rem; padding-bottom: 5px; border-bottom: 1px solid #333; }
+        .log-table td { padding: 4px 0; border-bottom: 1px solid #222; }
+        
+        .rssi-good { color: #2ecc71; } .rssi-mid { color: #f1c40f; } .rssi-bad { color: #e74c3c; }
+
+        /* --- ANIMATION LIGNE (FLUX) --- */
+        @keyframes dash-animation {
+            to { stroke-dashoffset: -100; }
+        }
+        .animated-line {
+            animation: dash-animation 2s linear infinite;
+        }
+
+        /* --- STYLE DU BONHOMME --- */
+        .human-marker-icon {
+            text-align: center;
+            color: var(--primary-color);
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.7);
+            animation: pulse-human 2s infinite;
+        }
+        @keyframes pulse-human {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* --- STYLE DE L'ÉTIQUETTE (TOOLTIP) --- */
+        .custom-tooltip {
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--primary-color);
+            color: var(--primary-color);
+            font-family: 'Inter', sans-serif;
+            font-weight: bold;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+        }
+        .leaflet-tooltip-top:before { border-top-color: var(--primary-color); }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="header">
+            <i class="fa-solid fa-circle-nodes"></i>
+            <h2>LIVE TRACKER</h2>
+        </div>
+        
+        <button class="btn-action" onclick="toggleConsole()">
+            <i class="fa-solid fa-terminal"></i> Voir les Logs
+        </button>
+    </div>
+
+    <div id="console-panel">
+        <div class="console-header">
+            <span><i class="fa-solid fa-database"></i> ENTRÉES BASE DE DONNÉES (RAW)</span>
+            <span class="console-close" onclick="toggleConsole()"><i class="fa-solid fa-xmark"></i></span>
+        </div>
+        <div class="console-body">
+            <table class="log-table">
+                <thead>
+                    <tr><th style="width: 100px;">HEURE</th><th>AP (Index)</th><th>BSSID (Mac)</th><th style="width: 80px;">RSSI</th></tr>
+                </thead>
+                <tbody id="log-content"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-polyline-decorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+
+    <script>
+        // 1. Initialisation Carte
+        var map = L.map('map', { zoomControl: false }).setView([48.8470, 2.3574], 18); // Zoom fort par défaut
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
+
+        var pathLayer = L.layerGroup().addTo(map);
+        var arrowLayer = L.layerGroup().addTo(map);
+        var markerLayer = L.layerGroup().addTo(map);
+
+        // 2. Fonction Principale : Mise à jour
+        async function updateMap() {
+            try {
+                const res = await fetch('/api/history');
+                const data = await res.json();
+                
+                if(data.length > 0) {
+                    // ASTUCE : On inverse les données pour avoir [Ancien -> ... -> Récent]
+                    // Comme ça, la flèche pointe dans le bon sens du déplacement
+                    const chronologicalData = data.reverse(); 
+
+                    drawMap(chronologicalData);
+                }
+
+                // Si la console est ouverte, on charge les logs
+                if(document.getElementById('console-panel').classList.contains('open')) { fetchLogs(); }
+            } catch(e) { console.error("Erreur:", e); }
+        }
+
+        // 3. Fonction Logs (Console)
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                const logs = await res.json();
+                const tbody = document.getElementById('log-content');
+                tbody.innerHTML = ""; 
+
+                logs.forEach(log => {
+                    let rowHtml = "";
+                    if (log.ap === -1) {
+                        rowHtml = `<tr style="background: rgba(231, 76, 60, 0.1);"><td style="color:#888;">${log.time}</td><td colspan="3" style="color:#e74c3c; text-align:center; font-weight:bold;"><i class="fa-solid fa-triangle-exclamation"></i> AUCUNE ADRESSE MAC</td></tr>`;
+                    } else if (log.ap === -2) {
+                        rowHtml = `<tr style="background: rgba(241, 196, 15, 0.1);"><td style="color:#888;">${log.time}</td><td colspan="3" style="color:#f1c40f; text-align:center; font-weight:bold;"><i class="fa-solid fa-triangle-exclamation"></i> RÉSEAUX INCONNUS</td></tr>`;
+                    } else {
+                        let colorClass = log.rssi > -60 ? "rssi-good" : (log.rssi > -80 ? "rssi-mid" : "rssi-bad");
+                        rowHtml = `<tr><td style="color:#666;">${log.time}</td><td style="color:#00f2ff;">AP ${log.ap}</td><td style="font-family:monospace;">${log.bssid}</td><td class="${colorClass}" style="font-weight:bold;">${log.rssi} dBm</td></tr>`;
+                    }
+                    tbody.innerHTML += rowHtml;
+                });
+            } catch(e) { console.error("Erreur Logs:", e); }
+        }
+
+        // 4. Fonction Dessin sur la carte
+        function drawMap(data) {
+            pathLayer.clearLayers(); arrowLayer.clearLayers(); markerLayer.clearLayers();
+            
+            var latlngs = data.map(p => [p.lat, p.lon]);
+            
+            // A. Ligne animée (Trajectoire)
+            var polyline = L.polyline(latlngs, { 
+                color: '#00f2ff', 
+                weight: 3, 
+                opacity: 0.8, 
+                dashArray: '10, 10', 
+                className: 'animated-line' 
+            }).addTo(pathLayer);
+            
+            // B. Flèches de direction (Pointent maintenant vers la fin du trajet)
+            var decorator = L.polylineDecorator(polyline, {
+                patterns: [{ offset: 25, repeat: 80, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { stroke: true, color: '#fff' } }) }]
+            }).addTo(arrowLayer);
+
+            // C. LE MARQUEUR (Sur le dernier point = Position Actuelle)
+            var lastPos = data[data.length - 1]; // Le dernier de la liste inversée
+
+            // On utilise un Cercle simple pour être sûr qu'il s'affiche (pas de bug d'image)
+            L.circleMarker([lastPos.lat, lastPos.lon], {
+                radius: 8,
+                color: '#fff',
+                weight: 2,
+                fillColor: '#00f2ff', // Cyan
+                fillOpacity: 1
+            })
+            .addTo(markerLayer)
+            .bindTooltip("MOI", { 
+                 permanent: true, 
+                 direction: 'top',
+                 className: 'custom-tooltip',
+                 offset: [0, -10]
+            });
+
+            // Recentrer la carte sur la dernière position connue
+            // map.panTo([lastPos.lat, lastPos.lon]); 
+        }
+
+        function toggleConsole() {
+            const panel = document.getElementById('console-panel');
+            panel.classList.toggle('open');
+            if(panel.classList.contains('open')) { fetchLogs(); }
+        }
+
+        // Lancement
+        updateMap();
+        setInterval(updateMap, 3000);
+    </script>
+</body>
+</html>
